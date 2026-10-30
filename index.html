@@ -91,6 +91,8 @@ table.stu tr.need td select.gen{border-color:#f59e0b;background:#fffbeb}
 .tile{border:1.5px solid var(--line);border-radius:10px;padding:10px 4px 8px;text-align:center;cursor:pointer;background:#fff;font-size:12px;font-weight:600;color:var(--ink)}
 .tile svg{width:62px;height:44px;display:block;margin:0 auto 4px}
 .tile.on{border-color:var(--red);background:var(--tint)}
+.tile .sw{display:none;font-size:10px;font-weight:700;color:var(--red);margin-top:2px}
+.tile.on .sw{display:block}
 .stepper{display:flex;align-items:center}
 .stepper button{width:30px;height:32px;border:1px solid #d1d5db;background:var(--panel);cursor:pointer;font-size:16px;font-weight:700}
 .stepper button:first-child{border-radius:7px 0 0 7px}.stepper button:last-child{border-radius:0 7px 7px 0}
@@ -246,7 +248,7 @@ table.stu tr.need td select.gen{border-color:#f59e0b;background:#fffbeb}
     <div class="sec-label" style="margin-top:8px">Table style</div>
     <div class="tiles" id="styleTiles">
       <div class="tile on" data-style="round"><svg viewBox="0 0 62 44"><circle cx="31" cy="22" r="10" fill="#fbf1f3" stroke="#c8102e" stroke-width="2"/><g fill="#9ca3af"><circle cx="31" cy="6" r="4.5"/><circle cx="31" cy="38" r="4.5"/><circle cx="14" cy="22" r="4.5"/><circle cx="48" cy="22" r="4.5"/></g></svg>Circle</div>
-      <div class="tile" data-style="rect"><svg viewBox="0 0 62 44"><rect x="10" y="16" width="42" height="12" rx="3" fill="#fbf1f3" stroke="#c8102e" stroke-width="2"/><g fill="#9ca3af"><circle cx="18" cy="8" r="4.5"/><circle cx="44" cy="8" r="4.5"/><circle cx="18" cy="36" r="4.5"/><circle cx="44" cy="36" r="4.5"/></g></svg>Rectangle</div>
+      <div class="tile" data-style="rect" id="rectTile" title="Click again to switch between a rectangle across the room and a rectangle perpendicular to the board"><svg viewBox="0 0 62 44"><rect x="10" y="16" width="42" height="12" rx="3" fill="#fbf1f3" stroke="#c8102e" stroke-width="2"/><g fill="#9ca3af"><circle cx="18" cy="8" r="4.5"/><circle cx="44" cy="8" r="4.5"/><circle cx="18" cy="36" r="4.5"/><circle cx="44" cy="36" r="4.5"/></g></svg><span class="tl">Rectangle</span><span class="sw">⇄ click again for perpendicular</span></div>
       <div class="tile" data-style="bench"><svg viewBox="0 0 62 44"><rect x="6" y="8" width="50" height="9" rx="3" fill="#fbf1f3" stroke="#c8102e" stroke-width="2"/><g fill="#9ca3af"><circle cx="14" cy="30" r="4.5"/><circle cx="26" cy="30" r="4.5"/><circle cx="38" cy="30" r="4.5"/><circle cx="50" cy="30" r="4.5"/></g></svg>Rows (all face the board)</div>
     </div>
     <div class="row3" style="margin-top:6px">
@@ -879,6 +881,15 @@ const SISDPlanner = (function () {
       for (let i = 0; i < k; i++) seats.push({ x: off + i * slot, y: th + 6 });
       return { w: n * slot + 6, h: th + 6 + H, seats, shape: { type: 'rect', x: 0, y: 0, w: n * slot + 6, h: th }, label: { x: 0, y: 0, w: n * slot + 6, h: th } };
     }
+    if (style === 'rectp') {
+      // rectangular table perpendicular to the board: a long desk running front to back, students on both sides facing each other
+      const a = Math.ceil(k / 2), b = Math.floor(k / 2), rowsN = Math.max(a, 2), slotY = H + 6, th = 40, seats = [];
+      const offY = (cnt) => (rowsN - cnt) * slotY / 2;
+      for (let i = 0; i < a; i++) seats.push({ x: 0, y: offY(a) + i * slotY });
+      for (let i = 0; i < b; i++) seats.push({ x: W + 6 + th + 6, y: offY(b) + i * slotY });
+      const w = b > 0 ? 2 * W + th + 12 : W + th + 6, h = rowsN * slotY - 6;
+      return { w, h, seats, shape: { type: 'rect', x: W + 6, y: 0, w: th, h, vertical: true }, label: { x: W + 6, y: 0, w: th, h } };
+    }
     // round table
     const D = k <= 4 ? 76 : k <= 6 ? 92 : 108;
     let r = D / 2 + 34;
@@ -1057,7 +1068,11 @@ function suggestLayout() {
 }
 function syncCfgUI() {
   const c = state.cfg;
-  $$('#styleTiles .tile').forEach(t => t.classList.toggle('on', t.dataset.style === c.style));
+  $$('#styleTiles .tile').forEach(t => t.classList.toggle('on', t.dataset.style === c.style || (t.dataset.style === 'rect' && c.style === 'rectp')));
+  const rt = $('#rectTile'), perp = c.style === 'rectp';
+  rt.querySelector('svg').innerHTML = perp ? RECT_SVG_PERP : RECT_SVG_ACROSS;
+  rt.querySelector('.tl').textContent = perp ? 'Rectangle (perpendicular)' : 'Rectangle';
+  rt.querySelector('.sw').textContent = perp ? '⇄ click again for across the room' : '⇄ click again for perpendicular';
   ['perTable', 'cols', 'rows'].forEach(k => $('#' + k).value = c[k]);
   $('#useNeeded').checked = c.useNeeded;
   $$('.opt').forEach(o => { const on = o.dataset.g === c.grouping; o.classList.toggle('on', on); $('input', o).checked = on; });
@@ -1075,7 +1090,16 @@ function updateReadout() {
   if (seats >= n) { ro.className = 'readout ok'; ro.innerHTML = '✓ ' + all + ' table' + (all > 1 ? 's' : '') + ' × ' + c.perTable + ' seats = <b>' + seats + ' seats</b> for ' + n + ' students.' + (c.useNeeded ? ' <b>' + Math.min(all, need) + '</b> table' + (Math.min(all, need) > 1 ? 's' : '') + ' will be used.' : ''); }
   else { ro.className = 'readout bad'; ro.innerHTML = '✗ ' + seats + ' seats is not enough for ' + n + ' students. You need at least <b>' + need + ' tables</b> of ' + c.perTable + ', or more seats per table.'; }
 }
-$('#styleTiles').addEventListener('click', e => { const t = e.target.closest('.tile'); if (!t) return; state.cfg.style = t.dataset.style; syncCfgUI(); });
+const RECT_SVG_ACROSS = '<rect x="10" y="16" width="42" height="12" rx="3" fill="#fbf1f3" stroke="#c8102e" stroke-width="2"/><g fill="#9ca3af"><circle cx="18" cy="8" r="4.5"/><circle cx="44" cy="8" r="4.5"/><circle cx="18" cy="36" r="4.5"/><circle cx="44" cy="36" r="4.5"/></g>';
+const RECT_SVG_PERP = '<rect x="25" y="2" width="12" height="40" rx="3" fill="#fbf1f3" stroke="#c8102e" stroke-width="2"/><g fill="#9ca3af"><circle cx="14" cy="12" r="4.2"/><circle cx="14" cy="32" r="4.2"/><circle cx="48" cy="12" r="4.2"/><circle cx="48" cy="32" r="4.2"/></g>';
+$('#styleTiles').addEventListener('click', e => {
+  const t = e.target.closest('.tile'); if (!t) return; const c = state.cfg, st = t.dataset.style;
+  if (st === 'rect') {                                    // one button, two layouts: click again to switch
+    c.style = c.style === 'rect' ? 'rectp' : c.style === 'rectp' ? 'rect' : (state.lastRect || 'rect');
+    state.lastRect = c.style;
+  } else c.style = st;
+  syncCfgUI();
+});
 $$('.stepper button').forEach(b => b.addEventListener('click', () => { const k = b.dataset.t, i = $('#' + k); const v = Math.max(+i.min, Math.min(+i.max, (+i.value || 1) + +b.dataset.d)); i.value = v; state.cfg[k] = v; updateReadout(); }));
 ['perTable', 'cols', 'rows'].forEach(k => $('#' + k).addEventListener('input', e => { const v = Math.max(+e.target.min, Math.min(+e.target.max, +e.target.value || 1)); state.cfg[k] = v; updateReadout(); }));
 $('#useNeeded').addEventListener('change', e => { state.cfg.useNeeded = e.target.checked; updateReadout(); });
@@ -1192,7 +1216,7 @@ function renderPlan() {
   const logoL = state.logos.left ? '<img alt="" src="' + state.logos.left + '">' : '';
   const date = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
   const used = plan.tables.length, seated = plan.tables.reduce((a, t) => a + t.seats.filter(Boolean).length, 0);
-  const tstyle = { round: 'round tables', rect: 'rectangular tables', bench: 'rows of desks' }[c.style];
+  const tstyle = { round: 'round tables', rect: 'rectangular tables', bench: 'rows of desks', rectp: 'perpendicular rectangular tables' }[c.style];
   const teacherView = state.show.scoreMode !== 'none' || state.show.band || state.show.tstats || state.show.tags;
   const how = [GROUP_TXT[c.grouping] + (c.grouping !== 'random' ? ' (' + PL.METRICS[c.metric].short + ')' : ''), c.genderMix ? 'boys & girls mixed' : '', c.peer ? 'peer pairs' : '', c.sen === 'front' ? 'SEN at front' : c.sen === 'spread' ? 'SEN spread' : ''].filter(Boolean).join(' · ');
   const seatedStu = plan.tables.reduce((a, t) => a.concat(t.seats.filter(Boolean).map(byId).filter(Boolean)), []);
